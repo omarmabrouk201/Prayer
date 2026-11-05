@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geolocator/geolocator.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -44,11 +43,12 @@ class PrayerHomeScreen extends StatefulWidget {
 }
 
 class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
-  // قائمة شاملة بمحافظات ومدن مصر الرئيسية
+  // قائمة شاملة بكل محافظات ومدن مصر الرئيسية
   final List<String> egyptianCities = [
     'Cairo', 'Alexandria', 'Giza', 'Port Said', 'Suez', 
     'Luxor', 'Aswan', 'Mansoura', 'Tanta', 'Ismailia', 
-    'Fayoum', 'Zagazig', 'Damietta', 'Minya', 'Assiut', 'Sohag', 'Qena'
+    'Fayoum', 'Zagazig', 'Damietta', 'Minya', 'Assiut', 'Sohag', 'Qena',
+    'Beni Suef', 'Hurghada', 'Sharm El-Sheikh', 'Marsa Matruh', 'Beheira', 'Monufia'
   ];
 
   List<String> savedCities = ['Cairo', 'Alexandria', 'Giza'];
@@ -82,7 +82,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     await prefs.setBool('dst_active', isDSTActive);
   }
 
-  // خاصية جلب المواقيت عبر الإنترنت مع ضبط التوقيت الصيفي إن وجد
+  // خاصية جلب المواقيت وتطبيق التوقيت الصيفي
   Future<void> fetchPrayerTimes() async {
     setState(() {
       isLoading = true;
@@ -97,7 +97,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
         final data = json.decode(response.body);
         Map<String, dynamic> timings = data['data']['timings'];
 
-        // إذا كان التوقيت الصيفي مفعل، نقوم بزيادة ساعة افتراضياً لعرض الوقت بدقة
+        // تفعيل التوقيت الصيفي (إضافة ساعة) لو الزرار مفعل
         if (isDSTActive) {
           timings.updateAll((key, value) {
             if (value is String && value.contains(':')) {
@@ -133,44 +133,6 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     }
   }
 
-  // محاولة تحديد الموقع الجغرافي بالاحداثيات وتقريبها لأقرب مدينة مصرية رئيسية
-  Future<void> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _showMsg('خدمة الموقع الجغرافي (GPS) مغلقة.');
-      return;
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _showMsg('تم رفض إذن الوصول للموقع.');
-        return;
-      }
-    }
-    
-    if (permission == LocationPermission.deniedForever) {
-      _showMsg('صلاحية الموقع مرفوضة بشكل دائم.');
-      return;
-    }
-
-    try {
-      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
-      // افتراض القاهرة كبداية أو تحديد الإحداثيات، ويمكن للمستخدم اختيار مدينته بسهولة من القائمة الشاملة
-      _showMsg('تم تحديد موقعك بنجاح! اختر محافظتك من القائمة.');
-    } catch (e) {
-      _showMsg('تعذر جلب الموقع الحالي.');
-    }
-  }
-
-  void _showMsg(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   Future<void> _showNotification(String title, String body) async {
     const AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
@@ -203,7 +165,6 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // قائمة اختيار المحافظات والمدن المتاحة
             Row(
               children: [
                 Expanded(
@@ -236,7 +197,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
             ),
             const SizedBox(height: 10),
 
-            // زر اختيار مدينة من القائمة الشاملة لمصر
+            // زر لاختيار أي محافظة أو مدينة مصرية
             ElevatedButton.icon(
               onPressed: () {
                 _showCityPickerBottomSheet(context);
@@ -244,15 +205,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
               icon: const Icon(Icons.list),
               label: const Text('اختر من كل محافظات ومدن مصر'),
             ),
-            const SizedBox(height: 5),
-
-            // زر لتحديد الموقع الحالي عبر GPS
-            OutlinedButton.icon(
-              onPressed: _determinePosition,
-              icon: const Icon(Icons.my_location),
-              label: const Text('تحديد موقعي الحالي GPS'),
-            ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 10),
 
             SwitchListTile(
               title: const Text('تفعيل التوقيت الصيفي (+1 ساعة)', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -295,7 +248,6 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     );
   }
 
-  // نافذة لاختيار أي مدينة مصرية وإضافتها للقائمة المحفوظة
   void _showCityPickerBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
