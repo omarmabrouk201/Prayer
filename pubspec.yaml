@@ -1,5 +1,5 @@
 name: prayer_times_app
-description: A prayer times app with local notifications and Egypt cities.
+description: A prayer times app with local notifications.
 publish_to: 'none'
 version: 1.0.0+1
 
