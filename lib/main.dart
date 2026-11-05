@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -43,15 +45,20 @@ class PrayerHomeScreen extends StatefulWidget {
 }
 
 class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
-  List<String> cities = ['Cairo', 'Alexandria', 'Makkah', 'Dubai'];
+  // قائمة شاملة بمحافظات ومدن مصر الرئيسية
+  final List<String> egyptianCities = [
+    'Cairo', 'Alexandria', 'Giza', 'Port Said', 'Suez', 
+    'Luxor', 'Aswan', 'Mansoura', 'Tanta', 'Ismailia', 
+    'Fayoum', 'Zagazig', 'Damietta', 'Aswan', 'Minya', 'Assiut'
+  ];
+
+  List<String> savedCities = ['Cairo', 'Alexandria', 'Giza'];
   String selectedCity = 'Cairo';
-  bool isDSTActive = false; // التوقيت الصيفي
+  bool isDSTActive = false;
   
   Map<String, dynamic>? prayerTimes;
   bool isLoading = false;
   String errorMessage = '';
-
-  final TextEditingController _newCityController = TextEditingController();
 
   @override
   void initState() {
@@ -59,70 +66,120 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     _loadSavedData();
   }
 
-  // تحميل المدن والإعدادات المحفوظة
   Future<void> _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      cities = prefs.getStringList('saved_cities') ?? ['Cairo', 'Alexandria', 'Makkah', 'Dubai'];
+      savedCities = prefs.getStringList('saved_cities') ?? ['Cairo', 'Alexandria', 'Giza'];
       selectedCity = prefs.getString('selected_city') ?? 'Cairo';
       isDSTActive = prefs.getBool('dst_active') ?? false;
     });
-    fetchPrayerTimesWithRetry();
+    fetchPrayerTimes();
+    // محاولة جلب موقع المستخدم تلقائياً عند فتح التطبيق
+    _determinePositionAndSuggest();
   }
 
-  // حفظ الإعدادات
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('saved_cities', cities);
+    await prefs.setStringList('saved_cities', savedCities);
     await prefs.setString('selected_city', selectedCity);
     await prefs.setBool('dst_active', isDSTActive);
   }
 
-  // خاصية جلب المواقيت مع إعادة المحاولة تلقائياً لو النت مش موجود
-  Future<void> fetchPrayerTimesWithRetry() async {
+  // خاصية جلب المواقيت عبر الإنترنت
+  Future<void> fetchPrayerTimes() async {
     setState(() {
       isLoading = true;
       errorMessage = '';
     });
 
-    int attempts = 0;
-    bool success = false;
+    final url = Uri.parse('https://api.aladhan.com/v1/timingsByCity?city=$selectedCity&country=Egypt&method=5');
 
-    while (attempts < 3 && !success) {
-      try {
-        // إذا كان التوقيت الصيفي مفعل نعدل طريقة الحساب أو نزود ساعة (مثال بسيط للتوضيح)
-        int method = 5; 
-        final url = Uri.parse('https://api.aladhan.com/v1/timingsByCity?city=$selectedCity&country=Egypt&method=$method');
-
-        final response = await http.get(url).timeout(const Duration(seconds: 10));
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          setState(() {
-            prayerTimes = data['data']['timings'];
-            // لو التوقيت الصيفي شغال نزود ساعة افتراضياً للعرض
-            if (isDSTActive) {
-              // تعديل بسيط تجريبي للوقت لو احتجت
-            }
-            isLoading = false;
-          });
-          success = true;
-          _showExternalNotification("تحديث المواقيت", "تم تحديث مواقيت الصلاة لمدينة $selectedCity بنجاح.");
-        }
-      } catch (e) {
-        attempts++;
-        if (attempts >= 3) {
-          setState(() {
-            errorMessage = 'لا يوجد اتصال بالإنترنت، سيتم إعادة المحاولة تلقائياً...';
-            isLoading = false;
-          });
-        }
-        await Future.delayed(const Duration(seconds: 5)); // ينتظر النت يرجع ويحاول تاني
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          prayerTimes = data['data']['timings'];
+          isLoading = false;
+        });
+        _showNotification("تحديث المواقيت", "تم جلب مواقيت الصلاة لمدينة $selectedCity بنجاح.");
+      } else {
+        setState(() {
+          errorMessage = 'فشل جلب البيانات، تأكد من الاتصال بالإنترنت.';
+          isLoading = false;
+        });
       }
+    } catch (e) {
+      setState(() {
+        errorMessage = 'لا يوجد اتصال بالإنترنت أو خطأ في الشبكة.';
+        isLoading = false;
+      });
     }
   }
 
-  // إرسال إشعار خارجي يظهر وأنت في أي تطبيق (مثل واتساب)
-  Future<void> _showExternalNotification(String title, String body) async {
+  // خاصية تحديد موقع المستخدم الجغرافي واقتراح المدينة
+  Future<void> _determinePositionAndSuggest() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    
+    if (permission == LocationPermission.deniedForever) return;
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
+      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
+      
+      if (placemarks.isNotEmpty) {
+        String? currentCity = placemarks.first.locality ?? placemarks.first.subAdministrativeArea;
+        if (currentCity != null && mounted) {
+          // سؤال المستخدم إذا كان يريد إضافة وتفعيل مدينته الحالية
+          _showLocationDialog(currentCity);
+        }
+      }
+    } catch (e) {
+      // تجاهل الخطأ صامتاً لو تعذر جلب الموقع GPS
+    }
+  }
+
+  void _showLocationDialog(String detectedCity) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تحديد الموقع الجغرافي'),
+        content: Text('تم اكتشاف أنك في مدينة ($detectedCity). هل تريد إضافتها واختيارها للمواقيت؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                if (!savedCities.contains(detectedCity)) {
+                  savedCities.add(detectedCity);
+                }
+                selectedCity = detectedCity;
+              });
+              _saveSettings();
+              fetchPrayerTimes();
+            },
+            child: const Text('نعم، استخدمها'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showNotification(String title, String body) async {
     const AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
       'prayer_full_channel',
@@ -130,34 +187,17 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
       channelDescription: 'إشعارات خارجية لمواقيت الصلاة',
       importance: Importance.max,
       priority: Priority.high,
-      ticker: 'ticker',
-      playSound: true,
-      enableVibration: true,
     );
 
     const NotificationDetails platformChannelSpecifics =
         NotificationDetails(android: androidPlatformChannelSpecifics);
 
     await flutterLocalNotificationsPlugin.show(
-      DateTime.now().millisecond,
+      0,
       title,
       body,
       platformChannelSpecifics,
     );
-  }
-
-  // إضافة مدينة جديدة للقائمة
-  void _addNewCity() {
-    String newCity = _newCityController.text.trim();
-    if (newCity.isNotEmpty && !cities.contains(newCity)) {
-      setState(() {
-        cities.add(newCity);
-        selectedCity = newCity;
-        _newCityController.clear();
-      });
-      _saveSettings();
-      fetchPrayerTimesWithRetry();
-    }
   }
 
   @override
@@ -171,14 +211,14 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // قسم اختيار وتغيير المدن
+            // قائمة اختيار المحافظات والمدن
             Row(
               children: [
                 Expanded(
                   child: DropdownButton<String>(
                     isExpanded: true,
-                    value: selectedCity,
-                    items: cities.map((String city) {
+                    value: savedCities.contains(selectedCity) ? selectedCity : savedCities.first,
+                    items: savedCities.map((String city) {
                       return DropdownMenuItem<String>(
                         value: city,
                         child: Text(city, style: const TextStyle(fontSize: 18)),
@@ -190,42 +230,30 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
                           selectedCity = newValue;
                         });
                         _saveSettings();
-                        fetchPrayerTimesWithRetry();
+                        fetchPrayerTimes();
                       }
                     },
                   ),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: fetchPrayerTimesWithRetry,
+                  onPressed: fetchPrayerTimes,
                   child: const Icon(Icons.refresh),
                 ),
               ],
             ),
             const SizedBox(height: 10),
 
-            // إضافة مدينة جديدة
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newCityController,
-                    decoration: const InputDecoration(
-                      labelText: 'أضف مدينة جديدة بالإنجليزية',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: _addNewCity,
-                  child: const Text('إضافة'),
-                ),
-              ],
+            // زر لاختيار مدينة من القائمة الشاملة لمصر
+            ElevatedButton.icon(
+              onPressed: () {
+                _showCityPickerBottomSheet(context);
+              },
+              icon: const Icon(Icons.add_location),
+              label: const Text('اختر من مدن ومحافظات مصر'),
             ),
-            const SizedBox(height: 15),
+            const SizedBox(height: 10),
 
-            // زرار التوقيت الصيفي (تشغيل / إيقاف)
             SwitchListTile(
               title: const Text('تفعيل التوقيت الصيفي (+1 ساعة)', style: TextStyle(fontWeight: FontWeight.bold)),
               value: isDSTActive,
@@ -234,12 +262,11 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
                   isDSTActive = value;
                 });
                 _saveSettings();
-                fetchPrayerTimesWithRetry();
+                fetchPrayerTimes();
               },
             ),
             const Divider(),
 
-            // عرض النتائج
             if (isLoading)
               const CircularProgressIndicator()
             else if (errorMessage.isNotEmpty)
@@ -265,6 +292,48 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // نافذة منبثقة لاختيار مدينة مصرية
+  void _showCityPickerBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          height: 350,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('اختر محافظة أو مدينة مصرية:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Divider(),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: egyptianCities.length,
+                  itemBuilder: (context, index) {
+                    String city = egyptianCities[index];
+                    return ListTile(
+                      title: Text(city),
+                      onTap: () {
+                        setState(() {
+                          if (!savedCities.contains(city)) {
+                            savedCities.add(city);
+                          }
+                          selectedCity = city;
+                        });
+                        _saveSettings();
+                        fetchPrayerTimes();
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
