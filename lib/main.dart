@@ -43,16 +43,39 @@ class PrayerHomeScreen extends StatefulWidget {
 }
 
 class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
-  // قائمة شاملة بكل محافظات ومدن مصر الرئيسية
-  final List<String> egyptianCities = [
-    'Cairo', 'Alexandria', 'Giza', 'Port Said', 'Suez', 
-    'Luxor', 'Aswan', 'Mansoura', 'Tanta', 'Ismailia', 
-    'Fayoum', 'Zagazig', 'Damietta', 'Minya', 'Assiut', 'Sohag', 'Qena',
-    'Beni Suef', 'Hurghada', 'Sharm El-Sheikh', 'Marsa Matruh', 'Beheira', 'Monufia'
-  ];
+  // خريطة تفصيلية تربط المحافظات بأشهر مدنها وأحياؤها بالإنجليزية للـ API
+  final Map<String, List<String>> egyptGovernorates = {
+    'Cairo (القاهرة)': ['Cairo', 'Nasr City', 'Heliopolis', 'Maadi', 'Zamalek', 'New Cairo'],
+    'Giza (الجيزة)': ['Giza', 'Dokki', 'Mohandessin', 'Sheikh Zayed', '6th of October', 'Haram'],
+    'Alexandria (الإسكندرية)': ['Alexandria', 'Borg El Arab', 'Montaza', 'Miami'],
+    'Dakahlia (الدقهلية)': ['Mansoura', 'Talkha', 'Mit Ghamr'],
+    'Sharqia (الشرقية)': ['Zagazig', 'Minya El Qamh', 'Belbeis'],
+    'Qalyubia (القليوبية)': ['Banha', 'Shubra El Kheima', 'Qalyub'],
+    'Gharbiya (الغربية)': ['Tanta', 'El Mahalla El Kubra', 'Zefta'],
+    'Monufia (الموفية)': ['Shibin El Kom', 'Menouf', 'Sadat City'],
+    'Beheira (البحيرة)': ['Damanhour', 'Kafr El Dawwar', 'Rashid'],
+    'Kafr El Sheikh (كفر الشيخ)': ['Kafr El Sheikh', 'Desouk', 'Baltim'],
+    'Damietta (دمياط)': ['Damietta', 'New Damietta', 'Ras El Bar'],
+    'Port Said (بورسعيد)': ['Port Said'],
+    'Suez (السويس)': ['Suez'],
+    'Ismailia (الإسماعيلية)': ['Ismailia', 'Fayed'],
+    'Red Sea (البحر الأحمر)': ['Hurghada', 'Sharm El-Sheikh', 'Safaga', 'Marsa Alam'],
+    'Aswan (أسوان)': ['Aswan', 'Kom Ombo', 'Edfu'],
+    'Luxor (الأقصر)': ['Luxor'],
+    'Qena (قنا)': ['Qena', 'Nag Hammadi'],
+    'Sohag (سوهاج)': ['Sohag', 'Girga'],
+    'Assiut (أسيوط)': ['Assiut', 'Abnoub'],
+    'Minya (المنيا)': ['Minya', 'Mallawi'],
+    'Beni Suef (بني سويف)': ['Beni Suef'],
+    'Fayoum (الفيوم)': ['Fayoum', 'Bahr Youssef'],
+    'Matrouh (مطروح)': ['Marsa Matruh', 'El Alamein', 'Siwa'],
+    'New Valley (الوادي الجديد)': ['Kharga', 'Dakhla'],
+    'North Sinai (شمال سيناء)': ['Arish', 'Sheikh Zuweid'],
+    'South Sinai (جنوب سيناء)': ['El Tor', 'Dahab', 'Nuweiba']
+  };
 
-  List<String> savedCities = ['Cairo', 'Alexandria', 'Giza'];
-  String selectedCity = 'Cairo';
+  List<String> savedLocations = ['Dokki', 'Giza', 'Cairo'];
+  String selectedLocation = 'Dokki';
   bool isDSTActive = false;
   
   Map<String, dynamic>? prayerTimes;
@@ -68,8 +91,8 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
   Future<void> _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      savedCities = prefs.getStringList('saved_cities') ?? ['Cairo', 'Alexandria', 'Giza'];
-      selectedCity = prefs.getString('selected_city') ?? 'Cairo';
+      savedLocations = prefs.getStringList('saved_locations') ?? ['Dokki', 'Giza', 'Cairo'];
+      selectedLocation = prefs.getString('selected_location') ?? 'Dokki';
       isDSTActive = prefs.getBool('dst_active') ?? false;
     });
     fetchPrayerTimes();
@@ -77,19 +100,18 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('saved_cities', savedCities);
-    await prefs.setString('selected_city', selectedCity);
+    await prefs.setStringList('saved_locations', savedLocations);
+    await prefs.setString('selected_location', selectedLocation);
     await prefs.setBool('dst_active', isDSTActive);
   }
 
-  // خاصية جلب المواقيت وتطبيق التوقيت الصيفي
   Future<void> fetchPrayerTimes() async {
     setState(() {
       isLoading = true;
       errorMessage = '';
     });
 
-    final url = Uri.parse('https://api.aladhan.com/v1/timingsByCity?city=$selectedCity&country=Egypt&method=5');
+    final url = Uri.parse('https://api.aladhan.com/v1/timingsByCity?city=$selectedLocation&country=Egypt&method=5');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 10));
@@ -97,7 +119,6 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
         final data = json.decode(response.body);
         Map<String, dynamic> timings = data['data']['timings'];
 
-        // تفعيل التوقيت الصيفي (إضافة ساعة) لو الزرار مفعل
         if (isDSTActive) {
           timings.updateAll((key, value) {
             if (value is String && value.contains(':')) {
@@ -118,7 +139,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
           prayerTimes = timings;
           isLoading = false;
         });
-        _showNotification("تحديث المواقيت", "تم جلب مواقيت الصلاة لمدينة $selectedCity بنجاح.");
+        _showNotification("تحديث المواقيت", "تم جلب مواقيت الصلاة لمنطقة $selectedLocation بنجاح.");
       } else {
         setState(() {
           errorMessage = 'فشل جلب البيانات، تأكد من الاتصال بالإنترنت.';
@@ -170,17 +191,17 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
                 Expanded(
                   child: DropdownButton<String>(
                     isExpanded: true,
-                    value: savedCities.contains(selectedCity) ? selectedCity : savedCities.first,
-                    items: savedCities.map((String city) {
+                    value: savedLocations.contains(selectedLocation) ? selectedLocation : savedLocations.first,
+                    items: savedLocations.map((String loc) {
                       return DropdownMenuItem<String>(
-                        value: city,
-                        child: Text(city, style: const TextStyle(fontSize: 18)),
+                        value: loc,
+                        child: Text(loc, style: const TextStyle(fontSize: 18)),
                       );
                     }).toList(),
                     onChanged: (String? newValue) {
                       if (newValue != null) {
                         setState(() {
-                          selectedCity = newValue;
+                          selectedLocation = newValue;
                         });
                         _saveSettings();
                         fetchPrayerTimes();
@@ -197,13 +218,13 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
             ),
             const SizedBox(height: 10),
 
-            // زر لاختيار أي محافظة أو مدينة مصرية
+            // زر لاختيار المحافظة ثم المدينة/الحي بدقة
             ElevatedButton.icon(
               onPressed: () {
-                _showCityPickerBottomSheet(context);
+                _showGovernoratesBottomSheet(context);
               },
-              icon: const Icon(Icons.list),
-              label: const Text('اختر من كل محافظات ومدن مصر'),
+              icon: const Icon(Icons.location_city),
+              label: const Text('اختر المحافظة والحي (مثل الجيزة > الدقي)'),
             ),
             const SizedBox(height: 10),
 
@@ -229,7 +250,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
                 child: ListView(
                   children: [
                     Text(
-                      'مواقيت الصلاة لمدينة: $selectedCity',
+                      'مواقيت الصلاة لمنطقة: $selectedLocation',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal[800]),
                     ),
                     const Divider(),
@@ -248,7 +269,8 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     );
   }
 
-  void _showCityPickerBottomSheet(BuildContext context) {
+  // عرض قائمة المحافظات أولاً
+  void _showGovernoratesBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -258,21 +280,57 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('اختر محافظة أو مدينة مصرية:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('اختر المحافظة:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Divider(),
               Expanded(
                 child: ListView.builder(
-                  itemCount: egyptianCities.length,
+                  itemCount: egyptGovernorates.keys.length,
                   itemBuilder: (context, index) {
-                    String city = egyptianCities[index];
+                    String govKey = egyptGovernorates.keys.elementAt(index);
                     return ListTile(
-                      title: Text(city),
+                      title: Text(govKey, style: const TextStyle(fontSize: 16)),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showCitiesBottomSheet(context, govKey, egyptGovernorates[govKey]!);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // عرض المدن والأحياء التابعة للمحافظة المختار (مثل الدقي والهرم تحت الجيزة)
+  void _showCitiesBottomSheet(BuildContext context, String governorateName, List<String> cities) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          height: 350,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('اختر المدينة / الحي في ($governorateName):', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Divider(),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: cities.length,
+                  itemBuilder: (context, index) {
+                    String city = cities[index];
+                    return ListTile(
+                      title: Text(city, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                       onTap: () {
                         setState(() {
-                          if (!savedCities.contains(city)) {
-                            savedCities.add(city);
+                          if (!savedLocations.contains(city)) {
+                            savedLocations.add(city);
                           }
-                          selectedCity = city;
+                          selectedLocation = city;
                         });
                         _saveSettings();
                         fetchPrayerTimes();
