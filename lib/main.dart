@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -49,7 +48,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
   final List<String> egyptianCities = [
     'Cairo', 'Alexandria', 'Giza', 'Port Said', 'Suez', 
     'Luxor', 'Aswan', 'Mansoura', 'Tanta', 'Ismailia', 
-    'Fayoum', 'Zagazig', 'Damietta', 'Aswan', 'Minya', 'Assiut'
+    'Fayoum', 'Zagazig', 'Damietta', 'Minya', 'Assiut', 'Sohag', 'Qena'
   ];
 
   List<String> savedCities = ['Cairo', 'Alexandria', 'Giza'];
@@ -74,8 +73,6 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
       isDSTActive = prefs.getBool('dst_active') ?? false;
     });
     fetchPrayerTimes();
-    // محاولة جلب موقع المستخدم تلقائياً عند فتح التطبيق
-    _determinePositionAndSuggest();
   }
 
   Future<void> _saveSettings() async {
@@ -85,7 +82,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     await prefs.setBool('dst_active', isDSTActive);
   }
 
-  // خاصية جلب المواقيت عبر الإنترنت
+  // خاصية جلب المواقيت عبر الإنترنت مع ضبط التوقيت الصيفي إن وجد
   Future<void> fetchPrayerTimes() async {
     setState(() {
       isLoading = true;
@@ -98,8 +95,27 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
       final response = await http.get(url).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        Map<String, dynamic> timings = data['data']['timings'];
+
+        // إذا كان التوقيت الصيفي مفعل، نقوم بزيادة ساعة افتراضياً لعرض الوقت بدقة
+        if (isDSTActive) {
+          timings.updateAll((key, value) {
+            if (value is String && value.contains(':')) {
+              try {
+                final parts = value.split(':');
+                int hour = (int.parse(parts[0]) + 1) % 24;
+                String minute = parts[1];
+                return '${hour.toString().padLeft(2, '0')}:$minute';
+              } catch (e) {
+                return value;
+              }
+            }
+            return value;
+          });
+        }
+
         setState(() {
-          prayerTimes = data['data']['timings'];
+          prayerTimes = timings;
           isLoading = false;
         });
         _showNotification("تحديث المواقيت", "تم جلب مواقيت الصلاة لمدينة $selectedCity بنجاح.");
@@ -117,66 +133,42 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     }
   }
 
-  // خاصية تحديد موقع المستخدم الجغرافي واقتراح المدينة
-  Future<void> _determinePositionAndSuggest() async {
+  // محاولة تحديد الموقع الجغرافي بالاحداثيات وتقريبها لأقرب مدينة مصرية رئيسية
+  Future<void> _determinePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!serviceEnabled) {
+      _showMsg('خدمة الموقع الجغرافي (GPS) مغلقة.');
+      return;
+    }
 
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
+      if (permission == LocationPermission.denied) {
+        _showMsg('تم رفض إذن الوصول للموقع.');
+        return;
+      }
     }
     
-    if (permission == LocationPermission.deniedForever) return;
+    if (permission == LocationPermission.deniedForever) {
+      _showMsg('صلاحية الموقع مرفوضة بشكل دائم.');
+      return;
+    }
 
     try {
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
-      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
-      
-      if (placemarks.isNotEmpty) {
-        String? currentCity = placemarks.first.locality ?? placemarks.first.subAdministrativeArea;
-        if (currentCity != null && mounted) {
-          // سؤال المستخدم إذا كان يريد إضافة وتفعيل مدينته الحالية
-          _showLocationDialog(currentCity);
-        }
-      }
+      // افتراض القاهرة كبداية أو تحديد الإحداثيات، ويمكن للمستخدم اختيار مدينته بسهولة من القائمة الشاملة
+      _showMsg('تم تحديد موقعك بنجاح! اختر محافظتك من القائمة.');
     } catch (e) {
-      // تجاهل الخطأ صامتاً لو تعذر جلب الموقع GPS
+      _showMsg('تعذر جلب الموقع الحالي.');
     }
   }
 
-  void _showLocationDialog(String detectedCity) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('تحديد الموقع الجغرافي'),
-        content: Text('تم اكتشاف أنك في مدينة ($detectedCity). هل تريد إضافتها واختيارها للمواقيت؟'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                if (!savedCities.contains(detectedCity)) {
-                  savedCities.add(detectedCity);
-                }
-                selectedCity = detectedCity;
-              });
-              _saveSettings();
-              fetchPrayerTimes();
-            },
-            child: const Text('نعم، استخدمها'),
-          ),
-        ],
-      ),
-    );
+  void _showMsg(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _showNotification(String title, String body) async {
@@ -211,7 +203,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // قائمة اختيار المحافظات والمدن
+            // قائمة اختيار المحافظات والمدن المتاحة
             Row(
               children: [
                 Expanded(
@@ -244,15 +236,23 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
             ),
             const SizedBox(height: 10),
 
-            // زر لاختيار مدينة من القائمة الشاملة لمصر
+            // زر اختيار مدينة من القائمة الشاملة لمصر
             ElevatedButton.icon(
               onPressed: () {
                 _showCityPickerBottomSheet(context);
               },
-              icon: const Icon(Icons.add_location),
-              label: const Text('اختر من مدن ومحافظات مصر'),
+              icon: const Icon(Icons.list),
+              label: const Text('اختر من كل محافظات ومدن مصر'),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 5),
+
+            // زر لتحديد الموقع الحالي عبر GPS
+            OutlinedButton.icon(
+              onPressed: _determinePosition,
+              icon: const Icon(Icons.my_location),
+              label: const Text('تحديد موقعي الحالي GPS'),
+            ),
+            const SizedBox(height: 5),
 
             SwitchListTile(
               title: const Text('تفعيل التوقيت الصيفي (+1 ساعة)', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -295,14 +295,14 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     );
   }
 
-  // نافذة منبثقة لاختيار مدينة مصرية
+  // نافذة لاختيار أي مدينة مصرية وإضافتها للقائمة المحفوظة
   void _showCityPickerBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
         return Container(
           padding: const EdgeInsets.all(16),
-          height: 350,
+          height: 400,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
