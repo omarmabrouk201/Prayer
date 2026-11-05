@@ -43,66 +43,24 @@ class PrayerHomeScreen extends StatefulWidget {
 }
 
 class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
-  // خريطة المحافظات والأحياء بالعربي بالكامل (الاسم العربي والاسم الإنجليزي المقابل للـ API)
-  final Map<String, Map<String, String>> egyptData = {
-    'القاهرة': {
-      'القاهرة (المركز)': 'Cairo',
-      'مدينة نصر': 'Nasr City',
-      'مصر الجديدة': 'Heliopolis',
-      'المعادي': 'Maadi',
-      'الزمالك': 'Zamalek',
-      'التجمع الخامس': 'New Cairo'
-    },
-    'الجيزة': {
-      'الجيزة (المركز)': 'Giza',
-      'الدقي': 'Dokki',
-      'المهندسين': 'Mohandessin',
-      'الشيخ زايد': 'Sheikh Zayed',
-      '6 أكتوبر': '6th of October',
-      'الهرم': 'Haram'
-    },
-    'الإسكندرية': {
-      'الإسكندرية (المركز)': 'Alexandria',
-      'برج العرب': 'Borg El Arab',
-      'المتزه': 'Montaza',
-      'ميامي': 'Miami'
-    },
-    'الدقهلية': {
-      'المنصورة': 'Mansoura',
-      'طلخا': 'Talkha',
-      'ميت غمر': 'Mit Ghamr'
-    },
-    'الشرقية': {
-      'الزقازيق': 'Zagazig',
-      'منيا القمح': 'Minya El Qamh',
-      'بلبيس': 'Belbeis'
-    },
-    'القليوبية': {
-      'بنها': 'Banha',
-      'شبرا الخيمة': 'Shubra El Kheima'
-    },
-    'الغربية': {
-      'طنطا': 'Tanta',
-      'المحلة الكبرى': 'El Mahalla El Kubra'
-    },
-    'أسوان': {
-      'أسوان': 'Aswan',
-      'كوم أمبو': 'Kom Ombo'
-    },
-    'الأقصر': {
-      'الأقصر': 'Luxor'
-    },
-    'بورسعيد': {
-      'بورسعيد': 'Port Said'
-    },
-    'السويس': {
-      'السويس': 'Suez'
-    }
+  final Map<String, String> egyptCities = {
+    'القاهرة (الدقي / وسط البلد)': 'Cairo',
+    'الجيزة (الهرم / الدقي)': 'Giza',
+    'الإسكندرية': 'Alexandria',
+    'الدقهلية (المنصورة)': 'Mansoura',
+    'الشرقية (الزقازيق)': 'Zagazig',
+    'القليوبية (بنها)': 'Banha',
+    'الغربية (طنطا)': 'Tanta',
+    'أسوان': 'Aswan',
+    'الأقصر': 'Luxor',
+    'بورسعيد': 'Port Said',
+    'السويس': 'Suez',
+    'الإسماعيلية': 'Ismailia',
+    'الغردقة (البحر الأحمر)': 'Hurghada'
   };
 
-  String selectedGovernorate = 'الجيزة';
-  String selectedCityArabic = 'الدقي';
-  String selectedCityApi = 'Dokki';
+  String selectedCityArabic = 'الجيزة (الهرم / الدقي)';
+  String selectedCityApi = 'Giza';
   
   bool isDSTActive = false;
   Map<String, dynamic>? prayerTimes;
@@ -112,15 +70,26 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _requestNotificationPermission(); // طلب إذن الإشعارات فور فتح التطبيق
     _loadSavedData();
+  }
+
+  // طلب إذن الإشعارات لأنظمة أندرويد الحديثة
+  Future<void> _requestNotificationPermission() async {
+    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+        FlutterLocalNotificationsPlugin();
+    
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
   }
 
   Future<void> _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      selectedGovernorate = prefs.getString('selected_gov') ?? 'الجيزة';
-      selectedCityArabic = prefs.getString('selected_city_ar') ?? 'الدقي';
-      selectedCityApi = prefs.getString('selected_city_api') ?? 'Dokki';
+      selectedCityArabic = prefs.getString('selected_city_ar') ?? 'الجيزة (الهرم / الدقي)';
+      selectedCityApi = prefs.getString('selected_city_api') ?? 'Giza';
       isDSTActive = prefs.getBool('dst_active') ?? false;
     });
     fetchPrayerTimes();
@@ -128,7 +97,6 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('selected_gov', selectedGovernorate);
     await prefs.setString('selected_city_ar', selectedCityArabic);
     await prefs.setString('selected_city_api', selectedCityApi);
     await prefs.setBool('dst_active', isDSTActive);
@@ -193,14 +161,13 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // عرض المنطقة الحالية المتاحة
             Card(
               elevation: 3,
               child: ListTile(
-                title: Text('المحافظة: $selectedGovernorate', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('المنطقة/المدينة: $selectedCityArabic'),
+                title: const Text('المنطقة الحالية:', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                subtitle: Text(selectedCityArabic, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 trailing: ElevatedButton(
-                  onPressed: () => _showGovernoratesDialog(context),
+                  onPressed: () => _showCityPickerDialog(context),
                   child: const Text('تغيير'),
                 ),
               ),
@@ -223,7 +190,10 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
             if (isLoading)
               const CircularProgressIndicator()
             else if (errorMessage.isNotEmpty)
-              Text(errorMessage, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+              Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Text(errorMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              )
             else if (prayerTimes != null)
               Expanded(
                 child: ListView(
@@ -232,7 +202,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'مواقيت الصلاة ($selectedCityArabic):',
+                          'المواقيت:',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.teal[800]),
                         ),
                         IconButton(
@@ -242,12 +212,12 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
                       ],
                     ),
                     const Divider(),
-                    ListTile(title: const Text('الفجر (Fajr)'), trailing: Text(prayerTimes!['Fajr'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                    ListTile(title: const Text('الشروق (Sunrise)'), trailing: Text(prayerTimes!['Sunrise'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                    ListTile(title: const Text('الظهر (Dhuhr)'), trailing: Text(prayerTimes!['Dhuhr'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                    ListTile(title: const Text('العصر (Asr)'), trailing: Text(prayerTimes!['Asr'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                    ListTile(title: const Text('المغرب (Maghrib)'), trailing: Text(prayerTimes!['Maghrib'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-                    ListTile(title: const Text('العشاء (Isha)'), trailing: Text(prayerTimes!['Isha'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                    ListTile(title: const Text('الفجر'), trailing: Text(prayerTimes!['Fajr'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                    ListTile(title: const Text('الشروق'), trailing: Text(prayerTimes!['Sunrise'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                    ListTile(title: const Text('الظهر'), trailing: Text(prayerTimes!['Dhuhr'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                    ListTile(title: const Text('العصر'), trailing: Text(prayerTimes!['Asr'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                    ListTile(title: const Text('المغرب'), trailing: Text(prayerTimes!['Maghrib'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                    ListTile(title: const Text('العشاء'), trailing: Text(prayerTimes!['Isha'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
                   ],
                 ),
               ),
@@ -257,8 +227,7 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
     );
   }
 
-  // نافذة اختيار المحافظات بالعربي
-  void _showGovernoratesDialog(BuildContext context) {
+  void _showCityPickerDialog(BuildContext context) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -268,56 +237,18 @@ class _PrayerHomeScreenState extends State<PrayerHomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('اختر المحافظة:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('اختر المحافظة / المدينة:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Divider(),
               Expanded(
                 child: ListView.builder(
-                  itemCount: egyptData.keys.length,
+                  itemCount: egyptCities.length,
                   itemBuilder: (context, index) {
-                    String gov = egyptData.keys.elementAt(index);
-                    return ListTile(
-                      title: Text(gov, style: const TextStyle(fontSize: 16)),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _showCitiesDialog(context, gov);
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // نافذة اختيار المدن والأحياء التابعة للمحافظة بالعربي
-  void _showCitiesDialog(BuildContext context, String gov) {
-    Map<String, String> citiesMap = egyptData[gov]!;
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          height: 350,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('اختر المدينة أو الحي في ($gov):', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: citiesMap.length,
-                  itemBuilder: (context, index) {
-                    String cityAr = citiesMap.keys.elementAt(index);
-                    String cityApi = citiesMap[cityAr]!;
+                    String cityAr = egyptCities.keys.elementAt(index);
+                    String cityApi = egyptCities[cityAr]!;
                     return ListTile(
                       title: Text(cityAr, style: const TextStyle(fontSize: 16)),
                       onTap: () {
                         setState(() {
-                          selectedGovernorate = gov;
                           selectedCityArabic = cityAr;
                           selectedCityApi = cityApi;
                         });
